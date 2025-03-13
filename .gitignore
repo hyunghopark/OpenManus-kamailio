@@ -1,0 +1,43 @@
+# Kamailio specific
+*.so
+*.o
+*.d
+*.lst
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+*.pid
+*.sock
+
+# Environment variables
+.env
+.env.*
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Build directory
+build/
+dist/
+
+# Dependencies
+node_modules/
+vendor/ 

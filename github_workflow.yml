@@ -1,0 +1,209 @@
+name: Kamailio SIP Server CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  DOCKER_REGISTRY: ghcr.io
+  PROJECT_NAME: kamailio-sip-server
+
+jobs:
+  # Lint and Code Quality Check
+  code-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      # Setup Python for linting
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.9'
+      
+      # Install linting tools
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 shellcheck
+      
+      # Bash Script Linting
+      - name: ShellCheck
+        run: |
+          find . -type f -name "*.sh" | xargs shellcheck
+      
+      # Python Code Linting
+      - name: Python Lint
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+  # Comprehensive Testing
+  test:
+    needs: code-quality
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        docker-compose-version: ['1.29.2', 'latest']
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      # Setup Docker and Docker Compose
+      - name: Set up Docker
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.9'
+      
+      - name: Install Docker Compose ${{ matrix.docker-compose-version }}
+        run: |
+          sudo curl -L "https://github.com/docker/compose/releases/download/${{ matrix.docker-compose-version }}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+      
+      # Prepare Test Environment
+      - name: Prepare Test Environment
+        run: |
+          chmod +x scripts/test_suite.sh
+          chmod +x initialize_kamailio_project.sh
+      
+      # Run Initialization
+      - name: Initialize Project
+        run: ./initialize_kamailio_project.sh
+      
+      # Run Comprehensive Test Suite
+      - name: Run Test Suite
+        run: ./scripts/test_suite.sh
+      
+      # Upload Test Logs
+      - name: Upload Test Logs
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-logs
+          path: /tmp/kamailio_test_results.log
+
+  # Security Scanning
+  security-scan:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      # Scan Docker files
+      - name: Docker Security Scan
+        uses: anchore/scan-action@v3
+        with:
+          path: "."
+          fail-build: false
+      
+      # Scan dependencies
+      - name: Dependency Vulnerability Scan
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: test
+      
+      # Secret Scanning
+      - name: Secret Detection
+        uses: zricethezav/gitleaks-action@master
+
+  # Build and Push Docker Images
+  docker-build:
+    needs: [test, security-scan]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      # Login to GitHub Container Registry
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      # Build Kamailio Image
+      - name: Build Kamailio Image
+        run: |
+          docker build -t ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/kamailio:${{ github.sha }} ./kamailio
+      
+      # Build MariaDB Image
+      - name: Build MariaDB Image
+        run: |
+          docker build -t ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/mariadb:${{ github.sha }} ./mariadb
+      
+      # Push Images
+      - name: Push Docker Images
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker push ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/kamailio:${{ github.sha }}
+          docker push ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/mariadb:${{ github.sha }}
+
+  # Deployment
+  deploy:
+    needs: docker-build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      # Deploy to Staging
+      - name: Deploy to Staging
+        run: |
+          echo "Deploying to staging environment"
+          # Add your deployment script or use cloud provider's deployment action
+      
+      # Integration Tests on Deployed Environment
+      - name: Staging Integration Tests
+        run: |
+          # Run tests against deployed environment
+          echo "Running staging integration tests"
+
+  # Notification
+  notify:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Slack Notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          fields: repo,message,commit,author,action,eventName,ref,workflow
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+# Performance and Scalability Metrics
+  performance-metrics:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      # Load Testing
+      - name: Performance Load Testing
+        run: |
+          docker run --rm \
+            -v $(pwd)/performance:/performance \
+            loadimpact/k6 run /performance/load_test.js
+
+# Compliance and Standards Check
+  compliance-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      # Check for licensing compliance
+      - name: License Compliance
+        uses: oss-compliance-action/oss-compliance-action@v1
+        with:
+          config-file: .compliance.yml

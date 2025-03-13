@@ -1,0 +1,40 @@
+version: '3.8'
+services:
+  mariadb:
+    image: mariadb:latest
+    container_name: kamailio-db
+    environment:
+      MYSQL_ROOT_PASSWORD: kamailio_root_pass
+      MYSQL_DATABASE: kamailio
+      MYSQL_USER: kamailio
+      MYSQL_PASSWORD: kamailio_user_pass
+    volumes:
+      - ./mariadb-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - kamailio_network
+
+  kamailio:
+    image: kamailio/kamailio-ci:latest
+    container_name: kamailio-server
+    depends_on:
+      - mariadb
+    volumes:
+      - ./kamailio-config:/etc/kamailio
+      - ./kamailio-data:/var/lib/kamailio
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "5061:5061/tcp"
+    environment:
+      - KAMAILIO_DB_HOST=mariadb
+      - KAMAILIO_DB_USER=kamailio
+      - KAMAILIO_DB_PASSWORD=kamailio_user_pass
+      - KAMAILIO_DB_NAME=kamailio
+    networks:
+      - kamailio_network
+
+networks:
+  kamailio_network:
+    driver: bridge

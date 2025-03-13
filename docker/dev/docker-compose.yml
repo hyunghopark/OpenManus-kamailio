@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  kamailio:
+    build:
+      context: ..
+      dockerfile: kamailio/Dockerfile
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "5061:5061/tcp"
+    volumes:
+      - ../../config/dev/kamailio.cfg:/etc/kamailio/kamailio.cfg
+      - ../../config/kamctlrc:/etc/kamailio/kamctlrc
+    environment:
+      - KAMAILIO_DEBUG=1
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: kamailio
+      MYSQL_USER: kamailio
+      MYSQL_PASSWORD: kamailiopass
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+
+volumes:
+  mysql_data: 
